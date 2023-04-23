@@ -3,6 +3,8 @@ import os.path as osp
 import warnings
 from collections import OrderedDict
 
+import os
+
 import mmcv
 import numpy as np
 from mmcv.utils import print_log
@@ -13,6 +15,17 @@ from mmseg.core import eval_metrics, intersect_and_union, pre_eval_to_metrics
 from mmseg.utils import get_root_logger
 from .builder import DATASETS
 from .pipelines import Compose, LoadAnnotations
+
+from mmseg.ops import resize
+
+def _resize(in_img, shape):
+    output = resize(
+        in_img,
+        size=shape,
+        mode='bilinear',
+        align_corners=True,
+        warning=False)
+    return output
 
 
 @DATASETS.register_module()
@@ -86,7 +99,7 @@ class CustomDataset(Dataset):
                  split=None,
                  data_root=None,
                  test_mode=False,
-                 ignore_index=255,
+                 ignore_index=-1,
                  reduce_zero_label=False,
                  classes=None,
                  palette=None,
@@ -153,16 +166,30 @@ class CustomDataset(Dataset):
 
         img_infos = []
         if split is not None:
-            lines = mmcv.list_from_file(
-                split, file_client_args=self.file_client_args)
-            for line in lines:
-                img_name = line.strip()
-                img_info = dict(filename=img_name + img_suffix)
-                if ann_dir is not None:
-                    seg_map = img_name + seg_map_suffix
-                    img_info['ann'] = dict(seg_map=seg_map)
-                img_infos.append(img_info)
+            with open(split) as f:
+                for _i, line in enumerate(f):
+                    arrays = line.strip().split()
+                    file_dir = arrays[0]
+                    file_dir = os.path.join(img_dir, file_dir)
+                    file_list = arrays[1:]
+
+                    img_info = dict(filename=[file_dir, file_list])
+
+                    if ann_dir is not None:
+                        #seg_name1 = 'JPEGImages/480p/bear/00080'
+                        #seg_name2 = seg_name1
+                        #seg_map1 = osp.join(ann_dir, seg_name1 + seg_map_suffix)
+                        #seg_map2 = osp.join(ann_dir, seg_name2 + seg_map_suffix)
+                        #img_info['ann'] = dict(seg_map=[seg_map1,seg_map2])
+
+                        if 'JPEGImages' in file_dir and '_all_frames' not in file_dir:
+                            seg_name = osp.join(file_dir, file_list[0][:-4] + '.png').replace('JPEGImages', 'Annotations')
+                        else:
+                            seg_name = osp.join(file_dir, file_list[0])
+                        img_info['ann'] = dict(seg_map=seg_name)
+                    img_infos.append(img_info)
         else:
+            assert 1==0
             for img in self.file_client.list_dir_or_file(
                     dir_path=img_dir,
                     list_dir=False,
@@ -212,7 +239,13 @@ class CustomDataset(Dataset):
         if self.test_mode:
             return self.prepare_test_img(idx)
         else:
-            return self.prepare_train_img(idx)
+            status, res = self.prepare_train_img(idx)
+            if status:
+                return res
+            else:
+                print('idx', idx, '[Warn][Broken File!!!]', res)
+                status, res = self.prepare_train_img(0)
+                return res
 
     def prepare_train_img(self, idx):
         """Get training data and annotations after pipeline.
@@ -229,7 +262,8 @@ class CustomDataset(Dataset):
         ann_info = self.get_ann_info(idx)
         results = dict(img_info=img_info, ann_info=ann_info)
         self.pre_pipeline(results)
-        return self.pipeline(results)
+        res = self.pipeline(results)
+        return True, res
 
     def prepare_test_img(self, idx):
         """Get testing data after pipeline.
@@ -407,6 +441,118 @@ class CustomDataset(Dataset):
         Returns:
             dict[str, float]: Default metrics.
         """
+        #s_loss_recon = 0.0
+        #s_loss_sum = 0.0
+        #img_num = len(results)
+        #for it in results:
+        #    s_loss_recon += float(it['loss_recon'])
+        #    s_loss_sum   += float(it['loss_sum'])
+
+        #s_loss_recon /= img_num
+        #s_loss_sum /= img_num
+        #s_loss = s_loss_recon + s_loss_sum
+
+        #return {'val_loss':float(s_loss), 'val_loss_recon':float(s_loss_recon), 'val_loss_sum':float(s_loss_sum)}
+
+        eval_results = {}
+        gt_seg_maps = self.get_gt_seg_maps()
+        gt_seg_maps = [(it/255).astype(np.int32) for it in gt_seg_maps]
+
+        if self.CLASSES is None:
+            num_classes = len(
+                reduce(np.union1d, [np.unique(_) for _ in gt_seg_maps]))
+        else:
+            num_classes = len(self.CLASSES)
+
+        results = [it['pred'] for it in results]
+        for i, it in enumerate(results):
+            it_resize = _resize(results[i], gt_seg_maps[i].shape[:2])
+            results[i] = it_resize
+            results[i][it_resize>0.5] = 1.0
+            results[i][it_resize<0.5] = 0
+            results[i] = results[i][0,:,:,:].long().cpu().numpy()
+
+        if not isinstance(metric, str):
+            assert len(metric) == 1
+            metric = metric[0]
+        allowed_metrics = ['mIoU']
+        if metric not in allowed_metrics:
+            raise KeyError('metric {} is not supported'.format(metric))
+
+
+        print('num_classes', num_classes)
+
+        all_acc, acc, iou, total_area_intersect, total_area_union = mean_iou(
+            results, gt_seg_maps, num_classes, ignore_index=self.ignore_index)
+        
+        summary_str = ''
+        summary_str += 'per class results:\n'
+
+        line_format = '{:<15} {:>10} {:>10}\n'
+        summary_str += line_format.format('Class', 'IoU', 'Acc')
+        if self.CLASSES is None:
+            class_names = tuple(range(num_classes))
+        else:
+            class_names = self.CLASSES
+        for i in range(num_classes):
+            iou_str = '{:.2f}'.format(iou[i] * 100)
+            acc_str = '{:.2f}'.format(acc[i] * 100)
+            summary_str += line_format.format(class_names[i], iou_str, acc_str)
+        summary_str += 'Summary:\n'
+        line_format = '{:<15} {:>10} {:>10} {:>10}\n'
+        summary_str += line_format.format('Scope', 'mIoU', 'mAcc', 'aAcc')
+
+        iou_str = '{:.2f}'.format(np.nanmean(iou) * 100)
+        acc_str = '{:.2f}'.format(np.nanmean(acc) * 100)
+        all_acc_str = '{:.2f}'.format(all_acc * 100)
+        summary_str += line_format.format('global', iou_str, acc_str,
+                                          all_acc_str)
+        print_log(summary_str, logger)
+        #print_log('\n [miou info] total_area_intersect total_area_union ::: {}, {}, {}'.format(total_area_intersect.tolist(), total_area_union.tolist(), iou.tolist()), logger)
+
+        eval_results['mIoU'] = np.nanmean(iou)
+        eval_results['mAcc'] = np.nanmean(acc)
+        eval_results['aAcc'] = all_acc
+
+        return eval_results
+
+
+    def _evaluate(self,
+                 results,
+                 metric='mIoU',
+                 logger=None,
+                 gt_seg_maps=None,
+                 **kwargs):
+        """Evaluate the dataset.
+
+        Args:
+            results (list[tuple[torch.Tensor]] | list[str]): per image pre_eval
+                 results or predict segmentation map for computing evaluation
+                 metric.
+            metric (str | list[str]): Metrics to be evaluated. 'mIoU',
+                'mDice' and 'mFscore' are supported.
+            logger (logging.Logger | None | str): Logger used for printing
+                related information during evaluation. Default: None.
+            gt_seg_maps (generator[ndarray]): Custom gt seg maps as input,
+                used in ConcatDataset
+
+        Returns:
+            dict[str, float]: Default metrics.
+        """
+        #return {'mIoU':0.0}
+        s_loss_recon = 0.0
+        s_loss_sum = 0.0
+        img_num = len(results)
+        for it in results:
+            s_loss_recon += float(it['loss_recon'])
+            s_loss_sum   += float(it['loss_sum'])
+
+        s_loss_recon /= img_num
+        s_loss_sum /= img_num
+        s_loss = s_loss_recon + s_loss_sum
+
+        return {'val_loss':float(s_loss), 'val_loss_recon':float(s_loss_recon), 'val_loss_sum':float(s_loss_sum)}
+
         if isinstance(metric, str):
             metric = [metric]
         allowed_metrics = ['mIoU', 'mDice', 'mFscore']

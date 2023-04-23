@@ -72,6 +72,12 @@ def intersect_and_union(pred_label,
         label = label - 1
         label[label == 254] = 255
 
+    if len(label.shape)!=2:
+        print('[Warning] cal miou: label!=2', end=' ')
+        print(label.shape)
+        #return [0, 0], [1e-9, 1e-9], 0, 0
+        return 0, 0, 0, 0
+    assert pred_label.shape == label.shape
     mask = (label != ignore_index)
     pred_label = pred_label[mask]
     label = label[mask]
@@ -113,15 +119,33 @@ def total_intersect_and_union(results,
          ndarray: The prediction histogram on all classes.
          ndarray: The ground truth histogram on all classes.
     """
+    num_mask_layer = results[0].shape[0]
     total_area_intersect = torch.zeros((num_classes, ), dtype=torch.float64)
     total_area_union = torch.zeros((num_classes, ), dtype=torch.float64)
     total_area_pred_label = torch.zeros((num_classes, ), dtype=torch.float64)
     total_area_label = torch.zeros((num_classes, ), dtype=torch.float64)
     for result, gt_seg_map in zip(results, gt_seg_maps):
-        area_intersect, area_union, area_pred_label, area_label = \
-            intersect_and_union(
-                result, gt_seg_map, num_classes, ignore_index,
-                label_map, reduce_zero_label)
+        max_iou = -1.0
+        res = []
+        cur_iou_list = []
+        for j in range(num_mask_layer):
+            area_intersect, area_union, area_pred_label, area_label = \
+                intersect_and_union(
+                    result, gt_seg_map, num_classes, ignore_index,
+                    label_map, reduce_zero_label)
+            if type(area_union) is int:
+                max_iou = 0.0
+                res = [area_intersect, area_union, area_pred_label, area_label]
+                break
+            else:
+                cur_iou = area_intersect * 1.0 / area_union
+                cur_iou_list.append((cur_iou, [area_intersect, area_union, area_pred_label, area_label]))
+                if cur_iou[1] > max_iou:
+                    max_iou = cur_iou[1]
+                    res = [area_intersect, area_union, area_pred_label, area_label]
+                
+        area_intersect, area_union, area_pred_label, area_label = res
+        
         total_area_intersect += area_intersect
         total_area_union += area_union
         total_area_pred_label += area_pred_label
@@ -363,6 +387,8 @@ def total_area_to_metrics(total_area_intersect,
 
     all_acc = total_area_intersect.sum() / total_area_label.sum()
     ret_metrics = OrderedDict({'aAcc': all_acc})
+    ret_metrics['TotalAreaIntersect'] = total_area_intersect
+    ret_metrics['TotalAreaUnion'] = total_area_union
     for metric in metrics:
         if metric == 'mIoU':
             iou = total_area_intersect / total_area_union

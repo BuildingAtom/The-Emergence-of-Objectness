@@ -128,7 +128,7 @@ class BaseDecodeHead(BaseModule, metaclass=ABCMeta):
         else:
             self.sampler = None
 
-        self.conv_seg = nn.Conv2d(channels, self.out_channels, kernel_size=1)
+        #self.conv_seg = nn.Conv2d(channels, self.out_channels, kernel_size=1)
         if dropout_ratio > 0:
             self.dropout = nn.Dropout2d(dropout_ratio)
         else:
@@ -213,7 +213,7 @@ class BaseDecodeHead(BaseModule, metaclass=ABCMeta):
         """Placeholder of forward function."""
         pass
 
-    def forward_train(self, inputs, img_metas, gt_semantic_seg, train_cfg):
+    def forward_train(self, inputs, img_metas, flow_x, flow_y, train_cfg):
         """Forward function for training.
         Args:
             inputs (list[Tensor]): List of multi-level img features.
@@ -230,8 +230,8 @@ class BaseDecodeHead(BaseModule, metaclass=ABCMeta):
             dict[str, Tensor]: a dictionary of loss components
         """
         seg_logits = self(inputs)
-        losses = self.losses(seg_logits, gt_semantic_seg)
-        return losses
+        losses, seg_logits = self.losses(seg_logits, (flow_x, flow_y))
+        return losses, seg_logits
 
     def forward_test(self, inputs, img_metas, test_cfg):
         """Forward function for testing.
@@ -250,27 +250,28 @@ class BaseDecodeHead(BaseModule, metaclass=ABCMeta):
         """
         return self.forward(inputs)
 
-    def cls_seg(self, feat):
-        """Classify each pixel."""
-        if self.dropout is not None:
-            feat = self.dropout(feat)
-        output = self.conv_seg(feat)
-        return output
+    #def cls_seg(self, feat):
+    #    """Classify each pixel."""
+    #    if self.dropout is not None:
+    #        feat = self.dropout(feat)
+    #    output = self.conv_seg(feat)
+    #    return output
 
     @force_fp32(apply_to=('seg_logit', ))
     def losses(self, seg_logit, seg_label):
         """Compute segmentation loss."""
         loss = dict()
+        _seg_label_size = seg_label[0].shape[1:] if isinstance(seg_label, tuple) else seg_label.shape[2:]
         seg_logit = resize(
             input=seg_logit,
-            size=seg_label.shape[2:],
+            size=_seg_label_size,
             mode='bilinear',
             align_corners=self.align_corners)
         if self.sampler is not None:
             seg_weight = self.sampler.sample(seg_logit, seg_label)
         else:
             seg_weight = None
-        seg_label = seg_label.squeeze(1)
+        #seg_label = seg_label.squeeze(1)
 
         if not isinstance(self.loss_decode, nn.ModuleList):
             losses_decode = [self.loss_decode]

@@ -1,5 +1,7 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import os.path as osp
+import os
+import random
 
 import mmcv
 import numpy as np
@@ -30,6 +32,10 @@ class LoadImageFromFile(object):
     """
 
     def __init__(self,
+                 load_num=2,
+                 step_limit=1,
+                 is_train=True,
+                 use_gauss_blur=False,
                  to_float32=False,
                  color_type='color',
                  file_client_args=dict(backend='disk'),
@@ -39,6 +45,10 @@ class LoadImageFromFile(object):
         self.file_client_args = file_client_args.copy()
         self.file_client = None
         self.imdecode_backend = imdecode_backend
+        self.use_gauss_blur = use_gauss_blur
+        self.is_train=is_train
+        self.load_num = load_num
+        self.step_limit = step_limit
 
     def __call__(self, results):
         """Call functions to load image and get image meta information.
@@ -58,21 +68,52 @@ class LoadImageFromFile(object):
                                 results['img_info']['filename'])
         else:
             filename = results['img_info']['filename']
-        img_bytes = self.file_client.get(filename)
-        img = mmcv.imfrombytes(
-            img_bytes, flag=self.color_type, backend=self.imdecode_backend)
-        if self.to_float32:
-            img = img.astype(np.float32)
+        folder, fn_list = filename
+
+        if self.is_train: 
+            st=random.randint(0, len(fn_list)-1); num=self.load_num; step=random.randint(1, self.step_limit)
+            #st=0; num=2; step=1
+            pass
+        else:
+            st=0; num=1; step=1
+
+        if len(fn_list[st:]) < step * num:
+            print('[frame num] less than step*num len=', len(fn_list), 'st=', st)
+            while len(fn_list[st:]) < step*num :
+                fn_list = fn_list + fn_list[::-1]
+        fn_list = [fn_list[it] for it in range(st, st+num*step, step)]
+        imgs=[]
+        for fn in fn_list:
+            fp_fn = os.path.join(folder, fn)
+            img_bytes = self.file_client.get(fp_fn)
+            img = mmcv.imfrombytes(
+                img_bytes, flag=self.color_type, backend=self.imdecode_backend)
+            if self.to_float32:
+                img = img.astype(np.float32)
+            if self.use_gauss_blur:
+                import scipy.ndimage as ndimage
+                img = ndimage.gaussian_filter(img, sigma=(3, 3, 0), order=0)
+
+            if img.shape[0] > img.shape[1]:
+                img = np.transpose(img, [1,0,2])
+            imgs.append(img)
+        #imgs = np.asarray(imgs)
+
+        #img_bytes = self.file_client.get(filename)
+        #img = mmcv.imfrombytes(
+        #    img_bytes, flag=self.color_type, backend=self.imdecode_backend)
+        #if self.to_float32:
+        #    img = img.astype(np.float32)
 
         results['filename'] = filename
         results['ori_filename'] = results['img_info']['filename']
-        results['img'] = img
-        results['img_shape'] = img.shape
-        results['ori_shape'] = img.shape
+        results['img'] = imgs
+        results['img_shape'] = imgs[0].shape
+        results['ori_shape'] = imgs[0].shape
         # Set initial values for default meta_keys
-        results['pad_shape'] = img.shape
+        results['pad_shape'] = imgs[0].shape
         results['scale_factor'] = 1.0
-        num_channels = 1 if len(img.shape) < 3 else img.shape[2]
+        num_channels = 3
         results['img_norm_cfg'] = dict(
             mean=np.zeros(num_channels, dtype=np.float32),
             std=np.ones(num_channels, dtype=np.float32),
@@ -129,7 +170,26 @@ class LoadAnnotations(object):
                                 results['ann_info']['seg_map'])
         else:
             filename = results['ann_info']['seg_map']
+        
         img_bytes = self.file_client.get(filename)
+        flow_x = mmcv.imfrombytes(
+            img_bytes, flag='unchanged',
+            backend=self.imdecode_backend).squeeze().astype(np.uint8)
+        
+        if flow_x.shape[0] > flow_x.shape[1]:
+            flow_x = np.transpose(flow_x, [1,0,2])
+
+        #flow_x_bin = bin_it(flow_x)
+        flow_x_bin = flow_x
+        flow_y_bin = flow_x_bin
+
+        results['flow_x'] = flow_x_bin
+        results['flow_y'] = flow_y_bin
+        results['seg_fields'].append('flow_x')
+        results['seg_fields'].append('flow_y')
+        return results 
+
+        img_bytes = self.file_client.get(filename1)
         gt_semantic_seg = mmcv.imfrombytes(
             img_bytes, flag='unchanged',
             backend=self.imdecode_backend).squeeze().astype(np.uint8)

@@ -119,7 +119,8 @@ class DistEvalHook(_DistEvalHook):
             self.dataloader,
             tmpdir=tmpdir,
             gpu_collect=self.gpu_collect,
-            pre_eval=self.pre_eval)
+            pre_eval=self.pre_eval,
+            state=self.eval_kwargs['state'])
         self.latest_results = results
         runner.log_buffer.clear()
 

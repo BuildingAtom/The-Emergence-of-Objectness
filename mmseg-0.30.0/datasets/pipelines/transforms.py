@@ -246,6 +246,7 @@ class Resize(object):
 
     def _resize_img(self, results):
         """Resize images with ``results['scale']``."""
+        resized_imgs=[]
         if self.keep_ratio:
             if self.min_size is not None:
                 # TODO: Now 'min_size' is an 'int' which means the minimum
@@ -264,12 +265,18 @@ class Resize(object):
                     new_h, new_w = new_short, new_short * w / h
                 results['scale'] = (new_h, new_w)
 
-            img, scale_factor = mmcv.imrescale(
-                results['img'], results['scale'], return_scale=True)
+            if results['scale'] == (-1, -1):
+                img = results['img']
+            else:
+                for _img in results['img']:
+                    #print("img before _img.shape={}".format(_img.shape))
+                    _img, scale_factor = mmcv.imrescale(_img, results['scale'], return_scale=True)
+                    #print("img _img.shape={}".format(_img.shape))
+                    resized_imgs.append(_img)
             # the w_scale and h_scale has minor difference
             # a real fix should be done in the mmcv.imrescale in the future
-            new_h, new_w = img.shape[:2]
-            h, w = results['img'].shape[:2]
+            new_h, new_w = resized_imgs[0].shape[:2]
+            h, w = results['img'][0].shape[:2]
             w_scale = new_w / w
             h_scale = new_h / h
         else:
@@ -277,9 +284,9 @@ class Resize(object):
                 results['img'], results['scale'], return_scale=True)
         scale_factor = np.array([w_scale, h_scale, w_scale, h_scale],
                                 dtype=np.float32)
-        results['img'] = img
-        results['img_shape'] = img.shape
-        results['pad_shape'] = img.shape  # in case that there is no padding
+        results['img'] = resized_imgs
+        results['img_shape'] = resized_imgs[0].shape
+        results['pad_shape'] = resized_imgs[0].shape  # in case that there is no padding
         results['scale_factor'] = scale_factor
         results['keep_ratio'] = self.keep_ratio
 
@@ -287,8 +294,13 @@ class Resize(object):
         """Resize semantic segmentation map with ``results['scale']``."""
         for key in results.get('seg_fields', []):
             if self.keep_ratio:
-                gt_seg = mmcv.imrescale(
-                    results[key], results['scale'], interpolation='nearest')
+                if results['scale'] == (-1, -1):
+                    gt_seg = results[key]
+                else:
+                    #print("anno before _img.shape={}".format(results[key].shape))
+                    gt_seg = mmcv.imrescale(
+                        results[key], results['scale'], interpolation='nearest')
+                    #print("anno _img.shape={}".format(gt_seg.shape))
             else:
                 gt_seg = mmcv.imresize(
                     results[key], results['scale'], interpolation='nearest')
@@ -362,8 +374,13 @@ class RandomFlip(object):
             results['flip_direction'] = self.direction
         if results['flip']:
             # flip image
-            results['img'] = mmcv.imflip(
-                results['img'], direction=results['flip_direction'])
+            #results['img'] = mmcv.imflip(results['img'], direction=results['flip_direction'])
+
+            flipped_list = []
+            for _img in results['img']:
+                flip_img = mmcv.imflip(_img, direction=results['flip_direction'])
+                flipped_list.append(flip_img)
+            results['img'] = flipped_list
 
             # flip segs
             for key in results.get('seg_fields', []):
@@ -475,9 +492,13 @@ class Normalize(object):
             dict: Normalized results, 'img_norm_cfg' key is added into
                 result dict.
         """
-
-        results['img'] = mmcv.imnormalize(results['img'], self.mean, self.std,
-                                          self.to_rgb)
+        normed_list = []
+        for _img in results['img']:
+            _img = mmcv.imnormalize(_img, self.mean, self.std, self.to_rgb)
+            normed_list.append(_img)
+        #results['img'] = mmcv.imnormalize(results['img'], self.mean, self.std,
+        #                                  self.to_rgb)
+        results['img'] = np.asarray(normed_list)
         results['img_norm_cfg'] = dict(
             mean=self.mean, std=self.std, to_rgb=self.to_rgb)
         return results
@@ -624,24 +645,36 @@ class RandomCrop(object):
                 updated according to crop size.
         """
 
-        img = results['img']
-        crop_bbox = self.get_crop_bbox(img)
-        if self.cat_max_ratio < 1.:
-            # Repeat 10 times
-            for _ in range(10):
-                seg_temp = self.crop(results['gt_semantic_seg'], crop_bbox)
-                labels, cnt = np.unique(seg_temp, return_counts=True)
-                cnt = cnt[labels != self.ignore_index]
-                if len(cnt) > 1 and np.max(cnt) / np.sum(
-                        cnt) < self.cat_max_ratio:
-                    break
-                crop_bbox = self.get_crop_bbox(img)
+        cropped=[]
 
-        # crop the image
-        img = self.crop(img, crop_bbox)
-        img_shape = img.shape
-        results['img'] = img
-        results['img_shape'] = img_shape
+
+        for i, img in enumerate(results['img']):
+            if img.shape[0] < self.crop_size[0] or img.shape[1] < self.crop_size[1]:
+                print("img.shape={}".format(img.shape))
+                print("self.crop_size={}".format(self.crop_size))
+            if img.shape[0] < self.crop_size[0]:
+                results['img'][i] = mmcv.imrescale(img, (2000, self.crop_size[0]))
+
+        for key in results.get('seg_fields', []):
+            if results[key].shape[0] < self.crop_size[0]:
+                results[key] = mmcv.imrescale(results[key], (2000, self.crop_size[0]))
+
+        crop_bbox = self.get_crop_bbox(results['img'][0])
+        for img in results['img']:
+            assert self.cat_max_ratio == 1.
+            # crop the image
+            #print("before img.shape={}".format(img.shape))
+            img = self.crop(img, crop_bbox)
+            #if img.shape[-3:-1] != self.crop_size:
+            #    print('Warn:', img.shape)
+            #    img = img
+            #    print('after Warn:', img.shape)
+
+            #print("after img.shape={}".format(img.shape))
+            img_shape = img.shape
+            cropped.append(img)
+
+        results['img'] = cropped
 
         # crop semantic seg
         for key in results.get('seg_fields', []):

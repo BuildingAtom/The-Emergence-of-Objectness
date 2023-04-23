@@ -8,6 +8,8 @@ import torch.nn.functional as F
 from ..builder import LOSSES
 from .utils import get_class_weight, weight_reduce_loss
 
+import random
+
 
 def cross_entropy(pred,
                   label,
@@ -268,9 +270,9 @@ class CrossEntropyLoss(nn.Module):
         else:
             class_weight = None
         # Note: for BCE loss, label < 0 is invalid.
-        loss_cls = self.loss_weight * self.cls_criterion(
-            cls_score,
-            label,
+        loss_cls_1 = self.loss_weight * self.cls_criterion(
+            cls_score[:,:9,:,:],
+            label[0].long(),
             weight,
             class_weight=class_weight,
             reduction=reduction,
@@ -278,7 +280,22 @@ class CrossEntropyLoss(nn.Module):
             avg_non_ignore=self.avg_non_ignore,
             ignore_index=ignore_index,
             **kwargs)
-        return loss_cls
+
+        loss_cls_2 = self.loss_weight * self.cls_criterion(
+            cls_score[:,9:,:,:],
+            label[1].long(),
+            weight,
+            class_weight=class_weight,
+            reduction=reduction,
+            avg_factor=avg_factor,
+            avg_non_ignore=self.avg_non_ignore,
+            ignore_index=ignore_index,
+            **kwargs)
+
+        if random.random()<0.01:
+            print('loss 1 and 2', loss_cls_1, loss_cls_2)
+
+        return loss_cls_1 + loss_cls_2
 
     @property
     def loss_name(self):
