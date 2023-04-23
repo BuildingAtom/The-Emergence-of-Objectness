@@ -1,3 +1,4 @@
+# Copyright (c) OpenMMLab. All rights reserved.
 import torch
 import torch.nn as nn
 from mmcv.cnn import ConvModule
@@ -38,6 +39,7 @@ class FCNHead(BaseDecodeHead):
         kernel_size (int): The kernel size for convs in the head. Default: 3.
         concat_input (bool): Whether concat the input and output of convs
             before classification layer.
+        dilation (int): The dilation rate for convs in the head. Default: 1.
     """
 
     def __init__(self,
@@ -52,7 +54,7 @@ class FCNHead(BaseDecodeHead):
                  concat_input=True,
                  dilation=1,
                  **kwargs):
-        assert num_convs > 0
+        assert num_convs >= 0 and dilation > 0 and isinstance(dilation, int)
         self.num_convs = num_convs
         self.concat_input = concat_input
         self.kernel_size = kernel_size
@@ -92,9 +94,9 @@ class FCNHead(BaseDecodeHead):
                 ConvModule(
                     self.in_channels,
                     self.channels,
-                    dilation=dilation,
                     kernel_size=kernel_size,
                     padding=dilation,
+                    dilation=dilation,
                     conv_cfg=self.conv_cfg,
                     norm_cfg=self.norm_cfg,
                     act_cfg=self.act_cfg))
@@ -180,11 +182,57 @@ class FCNHead(BaseDecodeHead):
             groups.append(res_dict['flows_fw_group'])
         return flows, flow_loss, flows_bg, flows_fg, groups 
 
+    def _forward_feature(self, inputs):
+        """Forward function for feature maps before classifying each pixel with
+        ``self.cls_seg`` fc.
+
+        Args:
+            inputs (list[Tensor]): List of multi-level img features.
+
+        Returns:
+            feats (Tensor): A tensor of shape (batch_size, self.channels,
+                H, W) which is feature map for last layer of decoder head.
+        """
+        x = self._transform_inputs(inputs)
+        feats = self.convs(x)
+        if self.concat_input:
+            feats = self.conv_cat(torch.cat([x, feats], dim=1))
+        return feats
+
+    def init_weights(self, pretrained=None):
+        """Initialize the weights in backbone.
+
+        Args:
+            pretrained (str, optional): Path to pre-trained weights.
+                Defaults to None.
+        """
+        if isinstance(pretrained, str):
+            logger = get_root_logger()
+            load_checkpoint(self, pretrained, strict=False, logger=logger)
+        elif pretrained is None:
+            for m in self.modules():
+                if isinstance(m, nn.Conv2d):
+                    kaiming_init(m)
+                elif isinstance(m, (_BatchNorm, nn.GroupNorm)):
+                    constant_init(m, 1)
+
+            if self.dcn is not None:
+                for m in self.modules():
+                    if isinstance(m, Bottleneck) and hasattr(
+                            m, 'conv2_offset'):
+                        constant_init(m.conv2_offset, 0)
+
+            if self.zero_init_residual:
+                for m in self.modules():
+                    if isinstance(m, Bottleneck):
+                        constant_init(m.norm3, 0)
+                    elif isinstance(m, BasicBlock):
+                        constant_init(m.norm2, 0)
+        else:
+            raise TypeError('pretrained must be a str or None')
+
     def forward(self, inputs):
         """Forward function."""
-        x = self._transform_inputs(inputs)
-        output = self.convs(x)
-        if self.concat_input:
-            output = self.conv_cat(torch.cat([x, output], dim=1))
+        output = self._forward_feature(inputs)
         output = self.cls_seg(output)
         return output

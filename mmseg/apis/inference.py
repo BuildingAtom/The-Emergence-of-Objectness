@@ -1,3 +1,4 @@
+# Copyright (c) OpenMMLab. All rights reserved.
 import matplotlib.pyplot as plt
 import mmcv
 import torch
@@ -16,7 +17,8 @@ def init_segmentor(config, checkpoint=None, device='cuda:0'):
             object.
         checkpoint (str, optional): Checkpoint path. If left as None, the model
             will not load any weights.
-
+        device (str, optional) CPU/CUDA device option. Default 'cuda:0'.
+            Use 'cpu' for loading model on CPU.
     Returns:
         nn.Module: The constructed segmentor.
     """
@@ -26,9 +28,10 @@ def init_segmentor(config, checkpoint=None, device='cuda:0'):
         raise TypeError('config must be a filename or Config object, '
                         'but got {}'.format(type(config)))
     config.model.pretrained = None
-    model = build_segmentor(config.model, test_cfg=config.test_cfg)
+    config.model.train_cfg = None
+    model = build_segmentor(config.model, test_cfg=config.get('test_cfg'))
     if checkpoint is not None:
-        checkpoint = load_checkpoint(model, checkpoint)
+        checkpoint = load_checkpoint(model, checkpoint, map_location='cpu')
         model.CLASSES = checkpoint['meta']['CLASSES']
         model.PALETTE = checkpoint['meta']['PALETTE']
     model.cfg = config  # save the config in the model for convenience
@@ -64,7 +67,7 @@ class LoadImage:
         return results
 
 
-def inference_segmentor(model, img):
+def inference_segmentor(model, imgs):
     """Inference image(s) with the segmentor.
 
     Args:
@@ -81,14 +84,18 @@ def inference_segmentor(model, img):
     test_pipeline = [LoadImage()] + cfg.data.test.pipeline[1:]
     test_pipeline = Compose(test_pipeline)
     # prepare data
-    data = dict(img=img)
-    data = test_pipeline(data)
-    data = collate([data], samples_per_gpu=1)
+    data = []
+    imgs = imgs if isinstance(imgs, list) else [imgs]
+    for img in imgs:
+        img_data = dict(img=img)
+        img_data = test_pipeline(img_data)
+        data.append(img_data)
+    data = collate(data, samples_per_gpu=len(imgs))
     if next(model.parameters()).is_cuda:
         # scatter to specified GPU
         data = scatter(data, [device])[0]
     else:
-        data['img_metas'] = data['img_metas'][0].data
+        data['img_metas'] = [i.data[0] for i in data['img_metas']]
 
     # forward the model
     with torch.no_grad():
@@ -96,7 +103,15 @@ def inference_segmentor(model, img):
     return result
 
 
-def show_result_pyplot(model, img, result, palette=None, fig_size=(15, 10)):
+def show_result_pyplot(model,
+                       img,
+                       result,
+                       palette=None,
+                       fig_size=(15, 10),
+                       opacity=0.5,
+                       title='',
+                       block=True,
+                       out_file=None):
     """Visualize the segmentation results on the image.
 
     Args:
@@ -107,10 +122,24 @@ def show_result_pyplot(model, img, result, palette=None, fig_size=(15, 10)):
             map. If None is given, random palette will be generated.
             Default: None
         fig_size (tuple): Figure size of the pyplot figure.
+        opacity(float): Opacity of painted segmentation map.
+            Default 0.5.
+            Must be in (0, 1] range.
+        title (str): The title of pyplot figure.
+            Default is ''.
+        block (bool): Whether to block the pyplot figure.
+            Default is True.
+        out_file (str or None): The path to write the image.
+            Default: None.
     """
     if hasattr(model, 'module'):
         model = model.module
-    img = model.show_result(img, result, palette=palette, show=False)
+    img = model.show_result(
+        img, result, palette=palette, show=False, opacity=opacity)
     plt.figure(figsize=fig_size)
     plt.imshow(mmcv.bgr2rgb(img))
-    plt.show()
+    plt.title(title)
+    plt.tight_layout()
+    plt.show(block=block)
+    if out_file is not None:
+        mmcv.imwrite(img, out_file)

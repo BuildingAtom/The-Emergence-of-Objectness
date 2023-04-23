@@ -1,8 +1,8 @@
+# Copyright (c) OpenMMLab. All rights reserved.
 import os.path as osp
 import os
 import random
 
-import pdb
 import mmcv
 import numpy as np
 
@@ -40,12 +40,12 @@ class LoadImageFromFile(object):
                  color_type='color',
                  file_client_args=dict(backend='disk'),
                  imdecode_backend='cv2'):
-        self.use_gauss_blur = use_gauss_blur
         self.to_float32 = to_float32
         self.color_type = color_type
         self.file_client_args = file_client_args.copy()
         self.file_client = None
         self.imdecode_backend = imdecode_backend
+        self.use_gauss_blur = use_gauss_blur
         self.is_train=is_train
         self.load_num = load_num
         self.step_limit = step_limit
@@ -133,7 +133,7 @@ class LoadAnnotations(object):
     """Load annotations for semantic segmentation.
 
     Args:
-        reduct_zero_label (bool): Whether reduce all label value by 1.
+        reduce_zero_label (bool): Whether reduce all label value by 1.
             Usually used for datasets where 0 is background label.
             Default: False.
         file_client_args (dict): Arguments to instantiate a FileClient.
@@ -166,12 +166,12 @@ class LoadAnnotations(object):
             self.file_client = mmcv.FileClient(**self.file_client_args)
 
         if results.get('seg_prefix', None) is not None:
-            filename1 = osp.join(results['seg_prefix'],
+            filename = osp.join(results['seg_prefix'],
                                 results['ann_info']['seg_map'])
         else:
-            filename1 = results['ann_info']['seg_map']
+            filename = results['ann_info']['seg_map']
         
-        img_bytes = self.file_client.get(filename1)
+        img_bytes = self.file_client.get(filename)
         flow_x = mmcv.imfrombytes(
             img_bytes, flag='unchanged',
             backend=self.imdecode_backend).squeeze().astype(np.uint8)
@@ -193,7 +193,14 @@ class LoadAnnotations(object):
         gt_semantic_seg = mmcv.imfrombytes(
             img_bytes, flag='unchanged',
             backend=self.imdecode_backend).squeeze().astype(np.uint8)
-
+        # modify if custom classes
+        if results.get('label_map', None) is not None:
+            # Add deep copy to solve bug of repeatedly
+            # replace `gt_semantic_seg`, which is reported in
+            # https://github.com/open-mmlab/mmsegmentation/pull/1445/
+            gt_semantic_seg_copy = gt_semantic_seg.copy()
+            for old_id, new_id in results['label_map'].items():
+                gt_semantic_seg[gt_semantic_seg_copy == old_id] = new_id
         # reduce zero_label
         if self.reduce_zero_label:
             # avoid using underflow conversion
