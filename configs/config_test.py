@@ -132,6 +132,13 @@ data = dict(
         img_dir='',
         ann_dir='',
         split='example_inf.txt',
+        pipeline=test_pipeline),
+    val=dict(
+        type=dataset_type,
+        data_root=data_root,
+        img_dir='',
+        ann_dir='',
+        split='example_inf.txt',
         pipeline=test_pipeline)
     )
 

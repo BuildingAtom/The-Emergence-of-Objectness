@@ -1,1 +1,1 @@
-PYTHONPATH="$(dirname $0)/..":$PYTHONPATH python tools/train.py configs/config_test.py --launcher none --work-dir output_test
+PT_OUTPUT_DIR=output_test PYTHONPATH="$(dirname $0)":$PYTHONPATH python tools/train.py configs/config_test.py --launcher none --work-dir output_test
