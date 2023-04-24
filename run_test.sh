@@ -1,0 +1,1 @@
+PT_OUTPUT_DIR=output_test PYTHONPATH="$(dirname $0)":$PYTHONPATH python tools/test.py configs/config_test.py amd_pretrained.pth --launcher none --eval mIoU

@@ -68,6 +68,7 @@ class LoadImageFromFile(object):
                                 results['img_info']['filename'])
         else:
             filename = results['img_info']['filename']
+        filename = results['img_info']['filename']
         folder, fn_list = filename
 
         if self.is_train: 
@@ -187,9 +188,9 @@ class LoadAnnotations(object):
         results['flow_y'] = flow_y_bin
         results['seg_fields'].append('flow_x')
         results['seg_fields'].append('flow_y')
-        return results 
+        # return results 
 
-        img_bytes = self.file_client.get(filename1)
+        img_bytes = self.file_client.get(filename)
         gt_semantic_seg = mmcv.imfrombytes(
             img_bytes, flag='unchanged',
             backend=self.imdecode_backend).squeeze().astype(np.uint8)

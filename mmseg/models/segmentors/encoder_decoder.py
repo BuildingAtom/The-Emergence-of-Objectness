@@ -219,9 +219,10 @@ class EncoderDecoder(BaseSegmentor):
             except:
                 print("[error in save]", fn_name)
             
-            losses = {}
-            losses['pred'] = pred_masks
-            return losses
+            # losses = {}
+            # losses['pred'] = pred_masks
+            # return losses
+            return pred_masks
 
         _batch, im_num, _channel, _h, _w = img.shape
 
@@ -308,7 +309,11 @@ class EncoderDecoder(BaseSegmentor):
 
     def simple_test(self, img, img_meta, rescale=True, state='val'):
         seg_logit = self.forward_for_train_test(img, img_meta, is_train=False, state=state)
-        return seg_logit
+        seg_pred = seg_logit.cpu().numpy()
+        # unravel batch dim
+        # seg_pred = list(seg_pred)
+        return [seg_pred]
+        #return seg_logit
 
     ## TO UPDATE SECTION
     # def _decode_head_forward_train(self, x, img_metas, gt_semantic_seg):

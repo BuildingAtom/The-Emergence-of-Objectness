@@ -10,6 +10,7 @@ import numpy as np
 from mmcv.utils import print_log
 from prettytable import PrettyTable
 from torch.utils.data import Dataset
+import torch
 
 from mmseg.core import eval_metrics, intersect_and_union, pre_eval_to_metrics
 from mmseg.utils import get_root_logger
@@ -118,7 +119,7 @@ class CustomDataset(Dataset):
         self.label_map = None
         self.CLASSES, self.PALETTE = self.get_classes_and_palette(
             classes, palette)
-        self.gt_seg_map_loader = LoadAnnotations(
+        self.gt_seg_map_loader = LoadAnnotations(reduce_zero_label=reduce_zero_label
         ) if gt_seg_map_loader_cfg is None else LoadAnnotations(
             **gt_seg_map_loader_cfg)
 
@@ -220,10 +221,10 @@ class CustomDataset(Dataset):
     def pre_pipeline(self, results):
         """Prepare results dict for pipeline."""
         results['seg_fields'] = []
-        results['img_prefix'] = self.img_dir
-        results['seg_prefix'] = self.ann_dir
-        if self.custom_classes:
-            results['label_map'] = self.label_map
+        # results['img_prefix'] = self.img_dir
+        # results['seg_prefix'] = self.ann_dir
+        # if self.custom_classes:
+        #     results['label_map'] = self.label_map
 
     def __getitem__(self, idx):
         """Get training/test data after pipeline.
@@ -419,7 +420,7 @@ class CustomDataset(Dataset):
 
         return palette
 
-    def evaluate(self,
+    def _evaluate(self,
                  results,
                  metric='mIoU',
                  logger=None,
@@ -517,7 +518,7 @@ class CustomDataset(Dataset):
         return eval_results
 
 
-    def _evaluate(self,
+    def evaluate(self,
                  results,
                  metric='mIoU',
                  logger=None,
@@ -540,18 +541,18 @@ class CustomDataset(Dataset):
             dict[str, float]: Default metrics.
         """
         #return {'mIoU':0.0}
-        s_loss_recon = 0.0
-        s_loss_sum = 0.0
-        img_num = len(results)
-        for it in results:
-            s_loss_recon += float(it['loss_recon'])
-            s_loss_sum   += float(it['loss_sum'])
+        # s_loss_recon = 0.0
+        # s_loss_sum = 0.0
+        # img_num = len(results)
+        # for it in results:
+        #     s_loss_recon += float(it['loss_recon'])
+        #     s_loss_sum   += float(it['loss_sum'])
 
-        s_loss_recon /= img_num
-        s_loss_sum /= img_num
-        s_loss = s_loss_recon + s_loss_sum
+        # s_loss_recon /= img_num
+        # s_loss_sum /= img_num
+        # s_loss = s_loss_recon + s_loss_sum
 
-        return {'val_loss':float(s_loss), 'val_loss_recon':float(s_loss_recon), 'val_loss_sum':float(s_loss_sum)}
+        # return {'val_loss':float(s_loss), 'val_loss_recon':float(s_loss_recon), 'val_loss_sum':float(s_loss_sum)}
 
         if isinstance(metric, str):
             metric = [metric]
@@ -560,12 +561,30 @@ class CustomDataset(Dataset):
             raise KeyError('metric {} is not supported'.format(metric))
 
         eval_results = {}
+        gt_seg_maps = self.get_gt_seg_maps()
+        gt_seg_maps = [(it/255).astype(np.int32) for it in gt_seg_maps]
+
+        if self.CLASSES is None:
+            num_classes = len(
+                reduce(np.union1d, [np.unique(_) for _ in gt_seg_maps]))
+        else:
+            num_classes = len(self.CLASSES)
+
+        for i, it in enumerate(results):
+            it_resize = _resize(torch.from_numpy(results[i]), gt_seg_maps[i].shape[:2])
+            results[i] = it_resize
+            results[i][it_resize>0.5] = 1.0
+            results[i][it_resize<0.5] = 0
+            results[i] = results[i][0,:,:,:].long().cpu().numpy()
+
+        print('num_classes', num_classes)
+
         # test a list of files
         if mmcv.is_list_of(results, np.ndarray) or mmcv.is_list_of(
                 results, str):
-            if gt_seg_maps is None:
-                gt_seg_maps = self.get_gt_seg_maps()
-            num_classes = len(self.CLASSES)
+            # if gt_seg_maps is None:
+            #     gt_seg_maps = self.get_gt_seg_maps()
+            # num_classes = len(self.CLASSES)
             ret_metrics = eval_metrics(
                 results,
                 gt_seg_maps,

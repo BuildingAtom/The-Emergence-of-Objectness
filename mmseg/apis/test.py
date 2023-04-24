@@ -39,7 +39,8 @@ def single_gpu_test(model,
                     opacity=0.5,
                     pre_eval=False,
                     format_only=False,
-                    format_args={}):
+                    format_args={},
+                    state='val'):
     """Test with single GPU by progressive mode.
 
     Args:
@@ -88,7 +89,7 @@ def single_gpu_test(model,
 
     for batch_indices, data in zip(loader_indices, data_loader):
         with torch.no_grad():
-            result = model(return_loss=False, **data)
+            result = model(return_loss=False, state=state, **data)
 
         if show or out_dir:
             img_tensor = data['img'][0]
@@ -130,7 +131,8 @@ def single_gpu_test(model,
         else:
             results.extend(result)
 
-        batch_size = len(result)
+        #batch_size = len(result)
+        batch_size = 1
         for _ in range(batch_size):
             prog_bar.update()
 

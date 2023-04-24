@@ -119,7 +119,7 @@ def total_intersect_and_union(results,
          ndarray: The prediction histogram on all classes.
          ndarray: The ground truth histogram on all classes.
     """
-    num_mask_layer = results[0].shape[0]
+    num_mask_layer = 1 if mmcv.is_list_of(results, str) else results[0].shape[0]
     total_area_intersect = torch.zeros((num_classes, ), dtype=torch.float64)
     total_area_union = torch.zeros((num_classes, ), dtype=torch.float64)
     total_area_pred_label = torch.zeros((num_classes, ), dtype=torch.float64)
@@ -131,7 +131,7 @@ def total_intersect_and_union(results,
         for j in range(num_mask_layer):
             area_intersect, area_union, area_pred_label, area_label = \
                 intersect_and_union(
-                    result, gt_seg_map, num_classes, ignore_index,
+                    result[j, :, :], gt_seg_map, num_classes, ignore_index,
                     label_map, reduce_zero_label)
             if type(area_union) is int:
                 max_iou = 0.0
