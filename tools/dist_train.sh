@@ -9,3 +9,6 @@ PORT=$3
 PYTHONPATH="$(dirname $0)/..":$PYTHONPATH \
 python -u -m torch.distributed.launch --nproc_per_node=$GPUS --master_port=$PORT \
     $(dirname "$0")/train.py $CONFIG --launcher pytorch --work-dir $PT_OUTPUT_DIR
+# PYTHONPATH="$(dirname $0)/..":$PYTHONPATH \
+# python -u -m pdb \
+#     $(dirname "$0")/train.py $CONFIG --launcher none --work-dir $PT_OUTPUT_DIR

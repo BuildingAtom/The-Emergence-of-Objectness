@@ -1,4 +1,6 @@
 youtube_data/
 *.pth
+outputs/
 output_test/
 __pycache__/
+articulated_data/

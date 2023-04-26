@@ -68,6 +68,10 @@ class LoadImageFromFile(object):
                                 results['img_info']['filename'])
         else:
             filename = results['img_info']['filename']
+        depth_folder = None
+        if results['img_info'].get('depth_folder') is not None:
+            depth_folder = results['img_info']['depth_folder']
+
         folder, fn_list = filename
 
         if self.is_train: 
@@ -78,16 +82,22 @@ class LoadImageFromFile(object):
             st=0; num=1; step=1
 
         if len(fn_list[st:]) < step * num:
-            print('[frame num] less than step*num len=', len(fn_list), 'st=', st)
+            # print('[frame num] less than step*num len=', len(fn_list), 'st=', st)
             while len(fn_list[st:]) < step*num :
                 fn_list = fn_list + fn_list[::-1]
         fn_list = [fn_list[it] for it in range(st, st+num*step, step)]
         imgs=[]
+        depths=[]
         for fn in fn_list:
             fp_fn = os.path.join(folder, fn)
             img_bytes = self.file_client.get(fp_fn)
             img = mmcv.imfrombytes(
                 img_bytes, flag=self.color_type, backend=self.imdecode_backend)
+            if depth_folder is not None:
+                fp_fn_depth = os.path.join(depth_folder, fn)
+                depth_bytes = self.file_client.get(fp_fn_depth)
+                depth = mmcv.imfrombytes(depth_bytes, flag="unchanged", backend="pillow")
+                depths.append(depth)
             if self.to_float32:
                 img = img.astype(np.float32)
             if self.use_gauss_blur:
@@ -108,12 +118,19 @@ class LoadImageFromFile(object):
         results['filename'] = filename
         results['ori_filename'] = results['img_info']['filename']
         results['img'] = imgs
+        results['depth'] = depths
         results['img_shape'] = imgs[0].shape
         results['ori_shape'] = imgs[0].shape
         # Set initial values for default meta_keys
         results['pad_shape'] = imgs[0].shape
         results['scale_factor'] = 1.0
         num_channels = 3
+        if len(depths) == len(imgs):
+            results['ori_img'] = results['img']
+            results['img'] = [np.concatenate((i.astype(np.float32),d[...,None].astype(np.float32)),axis=-1,dtype=np.float32) for i,d in zip(imgs, depths)]
+            results['img_shape'] = imgs[0].shape
+            results['pad_shape'] = imgs[0].shape
+            num_channels = 4
         results['img_norm_cfg'] = dict(
             mean=np.zeros(num_channels, dtype=np.float32),
             std=np.ones(num_channels, dtype=np.float32),

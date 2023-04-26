@@ -177,6 +177,10 @@ class EncoderDecoder(BaseSegmentor):
             toH, toW = all_pred_mask.shape[-2:]
             ith_img_resize = self.resize(ith_img, (toH * 2, toW * 2))
             ith_img_resize = (ith_img_resize + 2.0) / 4.0
+            if ith_img_resize.shape[1] == 4:
+                img_save = [ith_img_resize[:,:3,...], ith_img_resize[:,3:,...].repeat(1,3,1,1)]
+            else:
+                img_save = [ith_img_resize]
             
             pred_masks = all_pred_mask[:, 0, :, :, :]
             pred_vis_list = []
@@ -184,19 +188,28 @@ class EncoderDecoder(BaseSegmentor):
             for _i_ in range(min(self.mask_layer,pred_masks.shape[1])):
                 _pred_mask_resize = self.resize(pred_masks[:, _i_:_i_+1, :, :], (toH * 2, toW * 2)).repeat(1,3,1,1)
                 pred_vis_list.append(_pred_mask_resize)
-            tosave = torch.cat([ith_img_resize] + pred_vis_list, 2)
+            tosave = torch.cat(img_save + pred_vis_list, 2)
             
             try:
                 prefix, _fnlist = img_metas[0]['filename']
                 prefix = prefix.split('/')[-2]
                 _fnlist = _fnlist[0][:-4]
                 input_fn = prefix + '_' + _fnlist
-                dir_path = '{}/eval_{}_{}'.format(tgt_dir, state, self.train_iter)
+                dir_path = '{}/eval_{}/{}'.format(tgt_dir, state, self.train_iter)
                 if not dir_path in self.has_dir:
-                    os.system('mkdir {}'.format(dir_path))
+                    os.system('mkdir -p {}'.format(dir_path))
                     self.has_dir.add(dir_path)
                 fn_name = '{}/{}_iter{:07d}.jpg'.format(dir_path, input_fn, self.train_iter)
                 torchvision.utils.save_image(tosave, fn_name)
+                # Also save to one location for ease of visual update with vscode
+                dir_path2 = '{}/eval_{}/latest'.format(tgt_dir, state)
+                if not dir_path2 in self.has_dir:
+                    os.system('mkdir -p {}'.format(dir_path2))
+                    self.has_dir.add(dir_path2)
+                latest_name = '{}/{}.png'.format(dir_path2, input_fn)
+                # import mmcv
+                # mmcv.symlink(fn_name, latest_name)
+                torchvision.utils.save_image(tosave, latest_name)
             except:
                 print("[error in save]", fn_name)
             
@@ -258,19 +271,23 @@ class EncoderDecoder(BaseSegmentor):
         if self.train_iter % log_interval == 0:
             video_fn = img_metas[0]['filename'][0].split('/')[-1].split('_')[-1]
             pic_ith_imgs = torch.cat(ith_imgs, 0)
+            if pic_ith_imgs.shape[1] == 4:
+                img_save = [pic_ith_imgs[:,:3,...], pic_ith_imgs[:,3:,...].repeat(1,3,1,1)]
+            else:
+                img_save = [pic_ith_imgs]
             pic_ith_flowxy_ori = torch.cat(ith_flowxy_ori, 0)
             
-            tosave = torch.cat(pic_mask_mat + [pic_ith_imgs, pic_ith_flowxy_ori], 2)
+            tosave = torch.cat(pic_mask_mat + img_save + [pic_ith_flowxy_ori], 2)
             
             try:
                 if is_train:
-                    fn_name = '{}/train_good/{}_img_pred_recons_iter{:07d}.jpg'.format(tgt_dir, video_fn, self.train_iter)
+                    fn_name = '{}/train_good/{:07d}iter_img_pred_recons_{}.png'.format(tgt_dir, self.train_iter, video_fn)
                 else:
                     input_fn = img_metas[0]['filename'][0].replace('./','').replace('/', '_')
                     if not self.train_iter in self.has_dir:
                         os.system('mkdir {}/eval_{}'.format(tgt_dir, self.train_iter))
                         self.has_dir.add(self.train_iter)
-                    fn_name = '{}/eval_{}/{}_iter{:07d}.jpg'.format(tgt_dir, self.train_iter, input_fn, self.train_iter)
+                    fn_name = '{}/eval_{}/{}_iter{:07d}.png'.format(tgt_dir, self.train_iter, input_fn, self.train_iter)
                 torchvision.utils.save_image(tosave, fn_name)
             except:
                 print("[error in save]", fn_name)

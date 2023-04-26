@@ -147,6 +147,8 @@ def main():
             config=cfg.pretty_text,
             CLASSES=datasets[0].CLASSES,
             PALETTE=datasets[0].PALETTE)
+        # Set the save directory
+        cfg.checkpoint_config.out_dir = osp.join(cfg.work_dir, "ckpts/")
     # add an attribute for visualization convenience
     model.CLASSES = datasets[0].CLASSES
     train_segmentor(

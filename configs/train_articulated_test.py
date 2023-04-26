@@ -45,7 +45,8 @@ model = dict(
         norm_cfg=norm_cfg,
         norm_eval=False,
         style='pytorch',
-        contract_dilation=False
+        contract_dilation=False,
+        in_channels=4
         ),
     decode_head=dict(
         ssim_sz=ssim_sz,
@@ -87,12 +88,13 @@ train_cfg = dict()
 test_cfg = dict(mode='whole')
 
 # dataset settings
-dataset_type = 'AMDDataset'
+dataset_type = 'ArticulatedDataset'
 #data_root = ""
-data_root = 'data_example/'
+data_root = 'articulated_data/'
 
+# *ESTIMATED, should be computed
 img_norm_cfg = dict(
-    mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
+    mean=[110., 110., 110., 5600.], std=[42., 42., 42., 2500.], to_rgb=True)
 sz=400
 crop_size = (384, 384)
 train_pipeline = [
@@ -121,17 +123,17 @@ data = dict(
     workers_per_gpu=batch_size,
     train=dict(
         type=dataset_type,
-        data_root='youtube_data/',
+        data_root=data_root,
         img_dir='',
         ann_dir='',
-        split='ytb2019_train.txt',
+        split='training_set80.txt',
         pipeline=train_pipeline),
     test=dict(
         type=dataset_type,
         data_root=data_root,
         img_dir='',
         ann_dir='',
-        split='example_inf.txt',
+        split='test_inf.txt',
         pipeline=test_pipeline)
     )
 
@@ -140,7 +142,7 @@ optimizer = dict(type='Adam', lr=0.0005, weight_decay=0.0001 * 0.01)
 optimizer_config = dict()
 lr_config = dict(policy='poly', power=8, min_lr=1e-5, by_epoch=False)
 total_iters = 40000
-checkpoint_config = dict(by_epoch=False, interval=200, create_symlink=False)
+checkpoint_config = dict(by_epoch=False, interval=200, create_symlink=True)
 test_evaluation = dict(interval=200, metric='mIoU', state='test')
 find_unused_parameters = False
 

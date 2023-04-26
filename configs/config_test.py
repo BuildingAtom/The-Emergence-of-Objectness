@@ -21,7 +21,7 @@ log_config = dict(
 # yapf:enable
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-load_from = 'amd_pretrained.pth'
+load_from = 'iter_40000.pth'
 
 resume_from = None
 

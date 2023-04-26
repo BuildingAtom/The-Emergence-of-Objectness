@@ -165,6 +165,7 @@ class Resize(object):
     def _resize_img(self, results):
         """Resize images with ``results['scale']``."""
         resized_imgs=[]
+        resized_depths=[]
         if self.keep_ratio:
             if results['scale'] == (-1, -1):
                 img = results['img']
@@ -174,6 +175,15 @@ class Resize(object):
                     _img, scale_factor = mmcv.imrescale(_img, results['scale'], return_scale=True)
                     #print("img _img.shape={}".format(_img.shape))
                     resized_imgs.append(_img)
+                # try:
+                #     for _img in results['depth']:
+                #         #print("img before _img.shape={}".format(_img.shape))
+                #         _img, scale_factor = mmcv.imrescale(_img, results['scale'], return_scale=True)
+                #         #print("img _img.shape={}".format(_img.shape))
+                #         resized_depths.append(_img)
+                # except Exception as e:
+                #     print(e)
+                #     pass
             # the w_scale and h_scale has minor difference
             # a real fix should be done in the mmcv.imrescale in the future
             new_h, new_w = resized_imgs[0].shape[:2]
@@ -186,6 +196,7 @@ class Resize(object):
         scale_factor = np.array([w_scale, h_scale, w_scale, h_scale],
                                 dtype=np.float32)
         results['img'] = resized_imgs
+        results['depth'] = resized_depths
         results['img_shape'] = resized_imgs[0].shape
         results['pad_shape'] = resized_imgs[0].shape  # in case that there is no padding
         results['scale_factor'] = scale_factor
@@ -281,6 +292,15 @@ class RandomFlip(object):
                 flip_img = mmcv.imflip(_img, direction=results['flip_direction'])
                 flipped_list.append(flip_img)
             results['img'] = flipped_list
+
+            depth_flipped_list = []
+            try:
+                for _img in results['depth']:
+                    flip_img = mmcv.imflip(_img, direction=results['flip_direction'])
+                    depth_flipped_list.append(flip_img)
+            except:
+                pass
+            results['depth'] = depth_flipped_list
 
             # flip segs
             for key in results.get('seg_fields', []):
@@ -394,7 +414,12 @@ class Normalize(object):
         """
         normed_list = []
         for _img in results['img']:
-            _img = mmcv.imnormalize(_img, self.mean, self.std, self.to_rgb)
+            if _img.shape[-1] == 4:
+                _imgr = mmcv.imnormalize(_img[...,:3], self.mean[:3], self.std[:3], self.to_rgb)
+                _imgd = mmcv.imnormalize(_img[...,3], self.mean[3], self.std[3], False)
+                _img = np.concatenate((_imgr, _imgd[...,None]), axis=-1)
+            else:
+                _img = mmcv.imnormalize(_img, self.mean, self.std, self.to_rgb)
             normed_list.append(_img)
         results['img'] = np.asarray(normed_list)
         #results['img'] = mmcv.imnormalize(results['img'], self.mean, self.std, self.to_rgb)
