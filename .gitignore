@@ -1,0 +1,4 @@
+youtube_data/
+*.pth
+output_test/
+__pycache__/

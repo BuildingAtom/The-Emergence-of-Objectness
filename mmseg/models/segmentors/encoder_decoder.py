@@ -178,7 +178,7 @@ class EncoderDecoder(BaseSegmentor):
             ith_img_resize = self.resize(ith_img, (toH * 2, toW * 2))
             ith_img_resize = (ith_img_resize + 2.0) / 4.0
             
-            pred_masks = all_pred_mask[:, 0, 1:2, :, :]
+            pred_masks = all_pred_mask[:, 0, :, :, :]
             pred_vis_list = []
             
             for _i_ in range(min(self.mask_layer,pred_masks.shape[1])):
